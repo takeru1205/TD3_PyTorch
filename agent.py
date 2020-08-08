@@ -1,4 +1,5 @@
 # TD3 agent
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -41,9 +42,11 @@ class TD3(object):
         self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=actor_lr)
         self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=critic_lr, weight_decay=weight_decay)
 
-    def get_action(self):
+    def get_action(self, state):
         # TODO: select action with exploration noise(Gaussian Noise)
-        raise NotImplementedError
+        action = self.actor(state)
+        action = np.random.normal(0, 0.1) + action.detach().cpu().copy()
+        return np.clip(action, -0.1, 0.1)
 
     def store_transition(self, state, action, state_, reward, done):
         self.memory.store_transition(state, action, state_, reward, done)
