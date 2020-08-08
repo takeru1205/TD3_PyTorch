@@ -3,6 +3,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import torch.nn.functional as F
 from memory import ReplayMemory
 from model import Actor, Critic
 
@@ -35,7 +36,6 @@ class TD3(object):
         self.memory = ReplayMemory(state_dim, action_dim)
 
         self.gamma = gamma
-        self.criterion = nn.MSELoss()
         self.tau = tau
 
         # network parameter optimizer
@@ -61,23 +61,29 @@ class TD3(object):
 
     def update(self, time_step, batch_size=64):
         states, actions, states_, rewards, terminals = self.memory.sample(batch_size)
-        noise = np.clip(np.random.normal(0, 0.2), -0.5, 0.5)
+
+        # Update Critic
         with torch.no_grad():
-            actions_ = self.target_actor(states_) + noise
+            noise = (
+                    torch.randn_like(actions) * policy_noise
+            ).clamp(-noise_clip, noise_clip)
+
+            actions_ = (
+                    self.target_actor(states_) + noise
+            ).clamp(-self.max_action, self.max_action)
+
             target_q1, target_q2 = self.target_critic(states_, actions_)
             y = rewards.unsqueeze(1) + terminals.unsqueeze(1) * gamma * torch.min(target_q1, target_q2)
-
         q1, q2 = self.critic(states, actions)
-        q1_loss = self.criterion(q1, y)
-        q2_loss = self.criterion(q2, y)
-        critic_loss = torch.min(q1_loss, q2_loss)
+        critic_loss = F.mse_loss(q1, y) + F.mse_loss(q2, y)
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
         self.critic_optimizer.step()
         if self.writer and time_step:
             self.writer.add_scalar("loss/critic", critic_loss.item(), time_step)
 
-        if time_step % 2 == 0:
+        # Delayed Policy Update
+        if time_step % policy_freq == 0:
             # Update Actor
             actor_loss = -1 * self.critic.Q1(states, self.actor(states)).mean()
             self.actor_optimizer.zero_grad()
@@ -101,7 +107,3 @@ class TD3(object):
         self.critic.load_state_dict(torch.load(path + 'critic'))
         self.target_actor.load_state_dict(torch.load(path + 'target_actor'))
         self.target_critic.load_state_dict(torch.load(path + 'target_critic'))
-
-
-
-
