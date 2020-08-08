@@ -42,17 +42,53 @@ class TD3(object):
         self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=actor_lr)
         self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=critic_lr, weight_decay=weight_decay)
 
-    def get_action(self, state):
-        # TODO: select action with exploration noise(Gaussian Noise)
-        action = self.actor(state)
-        action = np.random.normal(0, 0.1) + action.detach().cpu().copy()
-        return np.clip(action, -0.1, 0.1)
+    def get_action(self, state, initial_act=False):
+        if initial_act:
+            return self.env.action_space.sample()
+        action = self.actor(torch.from_numpy(state).to('cuda', torch.float))
+        action = np.random.normal(0, 0.1) + action.detach().cpu().numpy()
+        return np.clip(action, -1, 1)
 
     def store_transition(self, state, action, state_, reward, done):
         self.memory.store_transition(state, action, state_, reward, done)
 
-    def update(self):
-        raise NotImplementedError
+    def soft_update(self, target_net, net):
+        """Target parameters soft update"""
+        for target_param, param in zip(target_net.parameters(), net.parameters()):
+            target_param.data.copy_(
+                self.tau * param.data + (1 - self.tau) * target_param.data
+            )
+
+    def update(self, time_step, batch_size=64):
+        states, actions, states_, rewards, terminals = self.memory.sample(batch_size)
+        noise = np.clip(np.random.normal(0, 0.2), -0.5, 0.5)
+        with torch.no_grad():
+            actions_ = self.target_actor(states_) + noise
+            target_q1, target_q2 = self.target_critic(states_, actions_)
+            y = rewards.unsqueeze(1) + terminals.unsqueeze(1) * gamma * torch.min(target_q1, target_q2)
+
+        q1, q2 = self.critic(states, actions)
+        q1_loss = self.criterion(q1, y)
+        q2_loss = self.criterion(q2, y)
+        critic_loss = torch.min(q1_loss, q2_loss)
+        self.critic_optimizer.zero_grad()
+        critic_loss.backward()
+        self.critic_optimizer.step()
+        if self.writer and time_step:
+            self.writer.add_scalar("loss/critic", critic_loss.item(), time_step)
+
+        if time_step % 2 == 0:
+            # Update Actor
+            actor_loss = -1 * self.critic.Q1(states, self.actor(states)).mean()
+            self.actor_optimizer.zero_grad()
+            actor_loss.backward()
+            self.actor_optimizer.step()
+            if self.writer:
+                self.writer.add_scalar("loss/actor", actor_loss.item(), time_step)
+
+            # target parameter soft update
+            self.soft_update(self.target_actor, self.actor)  # update target actor network
+            self.soft_update(self.target_critic, self.critic)  # update target critic network
 
     def save_model(self, path='models/'):
         torch.save(self.actor.state_dict(), path + 'actor')
