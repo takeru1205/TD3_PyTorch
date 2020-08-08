@@ -40,7 +40,7 @@ class TD3(object):
 
         # network parameter optimizer
         self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=actor_lr)
-        self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=critic_lr, weight_decay=weight_decay)
+        self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=critic_lr)
 
     def get_action(self, state, initial_act=False):
         if initial_act:
