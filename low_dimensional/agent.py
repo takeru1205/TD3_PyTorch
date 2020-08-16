@@ -70,7 +70,7 @@ class TD3(object):
 
             actions_ = (
                     self.target_actor(states_) + noise
-            ).clamp(-self.max_action, self.max_action)
+            ).clamp(-1, 1)
 
             target_q1, target_q2 = self.target_critic(states_, actions_)
             y = rewards.unsqueeze(1) + terminals.unsqueeze(1) * gamma * torch.min(target_q1, target_q2)
@@ -79,7 +79,7 @@ class TD3(object):
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
         self.critic_optimizer.step()
-        if self.writer and time_step:
+        if self.writer and time_step % 1000 == 0:
             self.writer.add_scalar("loss/critic", critic_loss.item(), time_step)
 
         # Delayed Policy Update
@@ -89,7 +89,7 @@ class TD3(object):
             self.actor_optimizer.zero_grad()
             actor_loss.backward()
             self.actor_optimizer.step()
-            if self.writer:
+            if self.writer and time_step % 1000 == 0:
                 self.writer.add_scalar("loss/actor", actor_loss.item(), time_step)
 
             # target parameter soft update
